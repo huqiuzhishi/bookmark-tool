@@ -295,5 +295,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   searchInput.focus();
   await Promise.all([loadBookmarks(), loadTabs()]);
-  setView('bookmarks');
+  setView('tabs');
 });
