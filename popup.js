@@ -164,20 +164,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     tabList.innerHTML = results.map(t => {
+      const faviconSvg = `<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
+               <rect x="1" y="1" width="14" height="14" rx="2"/>
+               <line x1="1" y1="5" x2="15" y2="5"/>
+             </svg>`;
       const faviconUrl = t.favIconUrl
-        ? `<img class="tab-favicon" src="${esc(t.favIconUrl)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-        + `<span class="tab-favicon-placeholder" style="display:none">
-             <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
-               <rect x="1" y="1" width="14" height="14" rx="2"/>
-               <line x1="1" y1="5" x2="15" y2="5"/>
-             </svg>
-           </span>`
-        : `<span class="tab-favicon-placeholder">
-             <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
-               <rect x="1" y="1" width="14" height="14" rx="2"/>
-               <line x1="1" y1="5" x2="15" y2="5"/>
-             </svg>
-           </span>`;
+        ? `<img class="tab-favicon" src="${esc(t.favIconUrl)}" alt="" data-favicon>
+           <span class="tab-favicon-placeholder hidden">${faviconSvg}</span>`
+        : `<span class="tab-favicon-placeholder">${faviconSvg}</span>`;
 
       const windowLabel = multiWindow
         ? `<span class="tab-window-badge">Win ${windowIds.indexOf(t.windowId) + 1}</span>`
@@ -205,6 +199,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       `<div class="tab-count-footer">${allTabs.length} open tab${allTabs.length !== 1 ? 's' : ''}${multiWindow ? ` across ${windowIds.length} windows` : ''}</div>`
     );
   }
+
+  tabList.addEventListener('error', (e) => {
+    if (e.target.dataset.favicon !== undefined) {
+      e.target.classList.add('hidden');
+      e.target.nextElementSibling.classList.remove('hidden');
+    }
+  }, true);
 
   tabList.addEventListener('click', async (e) => {
     const item = e.target.closest('.tab-item');
