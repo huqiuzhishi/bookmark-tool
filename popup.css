@@ -204,15 +204,158 @@ body {
   box-shadow: 0 0 0 3px var(--accent-light);
 }
 
+/* ── View Toggle ── */
+.view-toggle {
+  display: flex;
+  margin: 0 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.2px;
+}
+
+.toggle-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.toggle-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.toggle-btn:not(.active):hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 /* ── Bookmark List ── */
 .bookmark-list {
   flex: 1;
   overflow-y: auto;
-  max-height: 360px;
+  max-height: 340px;
+  margin-top: 8px;
 }
 
-.bookmark-list::-webkit-scrollbar { width: 4px; }
-.bookmark-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+/* ── Tab List ── */
+.tab-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 340px;
+  margin-top: 8px;
+}
+
+.tab-list::-webkit-scrollbar { width: 4px; }
+.tab-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.tab-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  gap: 10px;
+}
+
+.tab-item:hover { background: var(--bg-hover); }
+.tab-item:last-child { border-bottom: none; }
+
+.tab-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  object-fit: contain;
+}
+
+.tab-favicon-placeholder {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  background: var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tab-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.tab-url {
+  font-size: 11px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.tab-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-time {
+  font-size: 10px;
+  color: var(--text-hint);
+}
+
+.tab-window-badge {
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.tab-active-badge {
+  font-size: 10px;
+  color: var(--success);
+  background: rgba(34, 197, 94, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+/* ── Tab Count Footer ── */
+.tab-count-footer {
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--text-hint);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
 
 .bookmark-item {
   display: flex;
