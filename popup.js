@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusBar       = document.getElementById('statusBar');
   const toggleBookmarks = document.getElementById('toggleBookmarks');
   const toggleTabs      = document.getElementById('toggleTabs');
+  const exportBtn       = document.getElementById('exportBtn');
+  const importBtn       = document.getElementById('importBtn');
+  const importInput     = document.getElementById('importInput');
 
   let allBookmarks = [];
   let allTabs      = [];
@@ -59,6 +62,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusBar.textContent = msg;
     statusBar.classList.remove('hidden');
     statusTimer = setTimeout(() => statusBar.classList.add('hidden'), duration);
+  }
+
+  function downloadJson(filename, data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
   }
 
   // ── View Toggle ───────────────────────────────────────────────────────────
@@ -255,6 +279,38 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   cancelBtn.addEventListener('click', () => toggleAddMode(false));
+
+  // ── Import / Export ───────────────────────────────────────────────────────
+
+  exportBtn.addEventListener('click', async () => {
+    const bookmarks = await BookmarkStorage.getAll();
+    downloadJson(`quick-bookmarks-${new Date().toISOString().slice(0, 10)}.json`, {
+      exportedAt: new Date().toISOString(),
+      bookmarks
+    });
+    showStatus(`Exported ${bookmarks.length} bookmark${bookmarks.length !== 1 ? 's' : ''}`);
+  });
+
+  importBtn.addEventListener('click', () => importInput.click());
+
+  importInput.addEventListener('change', async () => {
+    const [file] = importInput.files;
+    if (!file) return;
+
+    try {
+      const contents = await readFileAsText(file);
+      const parsed = JSON.parse(contents);
+      const importedBookmarks = Array.isArray(parsed) ? parsed : parsed.bookmarks;
+      const count = await BookmarkStorage.importMany(importedBookmarks);
+      await loadBookmarks();
+      setView('bookmarks');
+      showStatus(`Imported ${count} new bookmark${count !== 1 ? 's' : ''}`);
+    } catch (err) {
+      showStatus('Import failed: invalid bookmark file', 3000);
+    } finally {
+      importInput.value = '';
+    }
+  });
 
   // ── Search ────────────────────────────────────────────────────────────────
 
