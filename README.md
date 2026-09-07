@@ -6,7 +6,7 @@ A lightweight Chrome extension for bookmarking webpages with personal notes and 
 
 - **One-click bookmark** — Click the extension icon to save the current page
 - **Keyboard shortcut** — `Alt+Shift+B` to open (configurable in `chrome://extensions/shortcuts`)
-- **Recent-tab switcher** — `Ctrl+Shift+Space` cycles through your 8 most recently visited tabs, Alt+Tab style
+- **Recent-tab switcher** — `Ctrl+Shift+Space` cycles through your 8 most recently visited tabs with an Arc-style overlay (thumbnail + title)
 - **Notes** — Add a few words describing what each bookmark is about
 - **Fuzzy search** — Search across URL, title, and notes simultaneously
 - **Duplicate detection** — Prevents saving the same URL twice
@@ -33,10 +33,16 @@ A lightweight Chrome extension for bookmarking webpages with personal notes and 
 ### Recent-tab switcher
 
 The extension tracks the order in which you visit tabs. Pressing the switcher
-shortcut jumps to the most recently visited *other* tab; pressing it again
-within ~1.5s steps one further back through the last 8 tabs (2nd most recent,
-3rd most recent, and so on). Pause, and the tab you landed on becomes the new
+shortcut shows an **overlay** on the current page listing your 8 most recently
+visited tabs (thumbnail + favicon + title). The first press highlights the most
+recent *other* tab; each further press within ~1.5s moves the highlight one
+further back. Pause, and the highlighted tab is activated and becomes the new
 "most recent".
+
+Thumbnails are captured while a tab is visible and cached in memory; tabs
+without a capture show their favicon instead. The overlay can't be drawn on
+restricted pages (`chrome://`, the Web Store, the PDF viewer, or a blank
+new-tab page) — switching still works there, just without the visual.
 
 > **Note on `Ctrl+Tab`:** Chrome reserves `Ctrl+Tab` (and `Ctrl+Shift+Tab`,
 > `Ctrl+W`, etc.) for the browser, so no extension can bind it — the key event
@@ -48,7 +54,7 @@ within ~1.5s steps one further back through the last 8 tabs (2nd most recent,
 
 ```
 manifest.json    — Chrome MV3 extension manifest
-background.js    — Service worker: MRU tab tracking + recent-tab switcher
+background.js    — Service worker: MRU tracking, tab thumbnails + switcher overlay
 popup.html/css/js — Extension popup UI
 storage.js       — CRUD layer over chrome.storage.local
 search.js        — Custom fuzzy search engine

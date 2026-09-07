@@ -1,26 +1,30 @@
-// background.js — Most-Recently-Used (MRU) tab switcher
+// background.js — Most-Recently-Used (MRU) tab switcher with a visual overlay
 //
 // Tracks the order in which tabs are visited and lets the user cycle through
-// the 8 most recently visited tabs with a keyboard shortcut, Alt+Tab style.
+// the 8 most recently visited tabs with a keyboard shortcut, Alt+Tab style,
+// showing an Arc-like overlay (thumbnail + title) inside the current page.
 //
-// Behaviour (matching the classic Alt+Tab switcher):
-//   - From the current tab, the first press jumps to the most recently
-//     visited *other* tab.
-//   - Each additional press *within the cycle window* steps one further back
-//     through the MRU list (2nd most recent, 3rd most recent, ...).
-//   - After a short pause (CYCLE_TIMEOUT) the cycle "commits": the tab you
-//     landed on becomes the most recent, and the next press starts fresh.
+// Behaviour:
+//   - 1st press  → overlay appears on the current tab; selection highlights
+//     the most recently visited *other* tab.
+//   - Each press → moves the highlight one further back (no tab switch yet).
+//   - On pause (CYCLE_TIMEOUT) the selection commits: the highlighted tab is
+//     activated and becomes the most recent.
+//
+// Thumbnails are captured while a tab is visible (captureVisibleTab can only
+// grab the active tab) and cached; tabs without a capture fall back to their
+// favicon. Overlay is injected into the current page, so it can't appear on
+// restricted pages (chrome://, Web Store, PDF viewer, blank new-tab).
 //
 // NOTE: Chrome reserves Ctrl+Tab for the browser, so extensions can't bind it.
-// The command below uses an allowed default; rebind it at
-// chrome://extensions/shortcuts
+// Rebind the command at chrome://extensions/shortcuts
 
 const MAX_RECENT    = 8;    // how many recent tabs to cycle through
 const CYCLE_TIMEOUT = 1500; // ms of inactivity before the cycle commits
+const THUMB_MAX_W   = 360;  // downscaled thumbnail width (px)
+const THUMB_CACHE   = 40;   // max cached thumbnails
 
 // ── MRU list persistence ─────────────────────────────────────────────────────
-// The service worker can be terminated between events, so the MRU order lives
-// in chrome.storage.session and is reloaded on demand.
 
 async function getMru() {
   const { mruTabs = [] } = await chrome.storage.session.get('mruTabs');
@@ -31,7 +35,6 @@ async function setMru(list) {
   await chrome.storage.session.set({ mruTabs: list });
 }
 
-// Move a tab to the front of the MRU list (most recent).
 async function touchTab(tabId) {
   if (tabId == null) return;
   let list = await getMru();
@@ -47,7 +50,6 @@ async function forgetTab(tabId) {
   if (next.length !== list.length) await setMru(next);
 }
 
-// Seed the MRU list from the browser's own lastAccessed ordering.
 async function seedMru() {
   const tabs = await chrome.tabs.query({});
   const ordered = tabs
@@ -58,34 +60,100 @@ async function seedMru() {
   await setMru(ordered.slice(0, 50));
 }
 
+// ── Thumbnail cache ──────────────────────────────────────────────────────────
+// In-memory; rebuilt as you browse if the service worker restarts.
+
+const thumbs = new Map(); // tabId -> jpeg data URL
+
+function cacheThumb(tabId, dataUrl) {
+  thumbs.delete(tabId);        // refresh insertion order (LRU-ish)
+  thumbs.set(tabId, dataUrl);
+  while (thumbs.size > THUMB_CACHE) {
+    thumbs.delete(thumbs.keys().next().value);
+  }
+}
+
+function isCapturable(url = '') {
+  return /^https?:|^file:/.test(url);
+}
+
+async function captureTab(tabId, windowId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active || !isCapturable(tab.url)) return;
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+      format: 'jpeg', quality: 70
+    });
+    cacheThumb(tabId, await downscale(dataUrl, THUMB_MAX_W));
+  } catch { /* protected page, not visible, etc. */ }
+}
+
+// Downscale a data URL using OffscreenCanvas (available in the service worker).
+async function downscale(dataUrl, maxW) {
+  try {
+    const blob   = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    const scale  = Math.min(1, maxW / bitmap.width);
+    const w = Math.max(1, Math.round(bitmap.width  * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    bitmap.close();
+    const out = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.6 });
+    const bytes = new Uint8Array(await out.arrayBuffer());
+    return `data:image/jpeg;base64,${bytesToBase64(bytes)}`;
+  } catch {
+    return dataUrl; // fall back to the full-size capture
+  }
+}
+
+function bytesToBase64(bytes) {
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+let captureTimer = null;
+function scheduleCapture(tabId, windowId) {
+  if (captureTimer) clearTimeout(captureTimer);
+  captureTimer = setTimeout(() => captureTab(tabId, windowId), 600);
+}
+
 // ── Cycle state (in-memory, short-lived) ─────────────────────────────────────
 
-let cycling            = false;
-let cycleList          = [];
-let cycleIndex         = 0;
-let cycleTimer         = null;
-let suppressActivation = false; // ignore onActivated fired by our own switches
+let cycling        = false;
+let cycleItems     = [];   // [{ tabId, title, url, favicon, thumb }]
+let cycleIndex     = 0;
+let cycleTimer     = null;
+let anchorTabId    = null; // tab the overlay is drawn on (stays visible)
 
 // ── Event listeners ──────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(seedMru);
 chrome.runtime.onStartup.addListener(seedMru);
 
-chrome.tabs.onActivated.addListener(({ tabId }) => {
-  // While cycling we drive activation ourselves and must not reorder the list,
-  // otherwise repeated presses would bounce between two tabs.
-  if (suppressActivation) return;
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   touchTab(tabId);
+  scheduleCapture(tabId, windowId);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status === 'complete' && tab.active) {
+    scheduleCapture(tabId, tab.windowId);
+  }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   forgetTab(tabId);
-  // Drop it from an in-progress cycle too.
+  thumbs.delete(tabId);
   if (cycling) {
-    const removedAt = cycleList.indexOf(tabId);
-    if (removedAt !== -1) {
-      cycleList.splice(removedAt, 1);
-      if (removedAt <= cycleIndex && cycleIndex > 0) cycleIndex--;
+    const at = cycleItems.findIndex(i => i.tabId === tabId);
+    if (at !== -1) {
+      cycleItems.splice(at, 1);
+      if (at <= cycleIndex && cycleIndex > 0) cycleIndex--;
     }
   }
 });
@@ -99,42 +167,45 @@ chrome.commands.onCommand.addListener((command) => {
 async function cycleRecentTabs() {
   if (!cycling) await startCycle();
 
-  if (cycleList.length <= 1) { endCycle(); return; }
+  if (cycleItems.length <= 1) { await endCycle(); return; }
 
-  // Step to the next-older tab, wrapping around the (capped) list.
-  cycleIndex = (cycleIndex + 1) % cycleList.length;
-  const targetId = cycleList[cycleIndex];
-
-  suppressActivation = true;
-  try {
-    const tab = await chrome.tabs.get(targetId);
-    await chrome.tabs.update(targetId, { active: true });
-    if (tab.windowId != null) {
-      await chrome.windows.update(tab.windowId, { focused: true });
-    }
-  } catch {
-    // The tab vanished — drop it and retry on the next press.
-    cycleList.splice(cycleIndex, 1);
-    if (cycleIndex > 0) cycleIndex--;
-  }
-
+  cycleIndex = (cycleIndex + 1) % cycleItems.length;
+  await showOverlay();
   scheduleCommit();
 }
 
 async function startCycle() {
   const list = await getMru();
-
-  // Make sure the currently-focused tab is the cycle's anchor (index 0).
-  let base = list.slice();
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  let ids = list.slice();
   if (active?.id != null) {
-    base = base.filter(id => id !== active.id);
-    base.unshift(active.id);
+    ids = ids.filter(id => id !== active.id);
+    ids.unshift(active.id);
+  }
+  ids = ids.slice(0, MAX_RECENT);
+
+  // The anchor tab is visible right now — grab a fresh thumbnail of it.
+  if (active?.id != null) await captureTab(active.id, active.windowId);
+
+  const items = [];
+  for (const id of ids) {
+    try {
+      const t = await chrome.tabs.get(id);
+      items.push({
+        tabId:   id,
+        title:   t.title || 'Untitled',
+        url:     t.url || '',
+        favicon: t.favIconUrl || '',
+        thumb:   thumbs.get(id) || null,
+      });
+    } catch { /* tab gone */ }
   }
 
-  cycleList  = base.slice(0, MAX_RECENT);
-  cycleIndex = 0;
-  cycling    = true;
+  cycleItems  = items;
+  cycleIndex  = 0;
+  cycling     = true;
+  anchorTabId = active?.id ?? null;
 }
 
 function scheduleCommit() {
@@ -142,16 +213,143 @@ function scheduleCommit() {
   cycleTimer = setTimeout(endCycle, CYCLE_TIMEOUT);
 }
 
-function endCycle() {
+async function showOverlay() {
+  if (anchorTabId == null) return;
+  const payload = {
+    selected: cycleIndex,
+    items: cycleItems.map(i => ({ title: i.title, favicon: i.favicon, thumb: i.thumb })),
+  };
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: anchorTabId },
+      func: overlayRender,
+      args: [payload],
+    });
+  } catch { /* restricted page — cycle still works, just no overlay */ }
+}
+
+async function endCycle() {
   if (cycleTimer) { clearTimeout(cycleTimer); cycleTimer = null; }
 
-  const landed = cycleList[cycleIndex];
+  const landed = cycleItems[cycleIndex]?.tabId ?? null;
+  const anchor = anchorTabId;
 
-  cycling            = false;
-  suppressActivation = false;
-  cycleList          = [];
-  cycleIndex         = 0;
+  cycling     = false;
+  cycleItems  = [];
+  cycleIndex  = 0;
+  anchorTabId = null;
 
-  // Commit: the tab we settled on is now the most recently used.
+  if (anchor != null) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: anchor }, func: overlayRemove });
+    } catch { /* ignore */ }
+  }
+
+  if (landed != null && landed !== anchor) {
+    try {
+      const tab = await chrome.tabs.get(landed);
+      await chrome.tabs.update(landed, { active: true });
+      if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+    } catch { /* tab gone */ }
+  }
+
   if (landed != null) touchTab(landed);
+}
+
+// ── Overlay (runs in the page via chrome.scripting.executeScript) ────────────
+// Must be fully self-contained: no references to outer scope.
+
+function overlayRender(payload) {
+  const ID = '__mru_switcher__';
+  const { items, selected } = payload;
+
+  let host = document.getElementById(ID);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = ID;
+    host.attachShadow({ mode: 'open' });
+    (document.body || document.documentElement).appendChild(host);
+  }
+  const shadow = host.shadowRoot;
+
+  // Fast path: same cards already rendered — just move the highlight.
+  const cards = shadow.querySelectorAll('.card');
+  if (cards.length === items.length) {
+    cards.forEach((el, i) => el.classList.toggle('sel', i === selected));
+    return;
+  }
+
+  const cardsHtml = items.map((it, i) => {
+    const media = it.thumb
+      ? `<img class="thumb" src="${it.thumb}" alt="">`
+      : `<div class="thumb noimg">${it.favicon
+          ? `<img class="fav-lg" src="${it.favicon}" alt="">`
+          : `<div class="fav-fallback"></div>`}</div>`;
+    const fav = it.favicon ? `<img class="fav" src="${it.favicon}" alt="">` : '';
+    const title = (it.title || 'Untitled')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div class="card${i === selected ? ' sel' : ''}">
+        ${media}
+        <div class="label">${fav}<span class="title">${title}</span></div>
+      </div>`;
+  }).join('');
+
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .backdrop {
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(15, 17, 21, 0.55);
+        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .rail {
+        display: flex; gap: 14px; padding: 20px 22px;
+        max-width: 92vw; overflow-x: auto;
+        background: rgba(28, 30, 36, 0.92);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+      }
+      .card {
+        flex: 0 0 auto; width: 220px;
+        border-radius: 12px; padding: 8px;
+        background: rgba(255,255,255,0.03);
+        border: 2px solid transparent;
+        transition: transform .12s ease, border-color .12s ease, background .12s ease;
+      }
+      .card.sel {
+        border-color: #4c8dff;
+        background: rgba(76,141,255,0.14);
+        transform: translateY(-4px) scale(1.02);
+      }
+      .thumb {
+        display: block; width: 100%; height: 132px;
+        object-fit: cover; border-radius: 8px;
+        background: #14161b;
+      }
+      .thumb.noimg { display: flex; align-items: center; justify-content: center; }
+      .fav-lg { width: 40px; height: 40px; opacity: .9; }
+      .fav-fallback {
+        width: 40px; height: 40px; border-radius: 8px;
+        background: linear-gradient(135deg,#3a3f4b,#242730);
+      }
+      .label { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 0 2px; }
+      .fav { width: 16px; height: 16px; flex: 0 0 auto; border-radius: 4px; }
+      .title {
+        color: #eef1f6; font-size: 13px; line-height: 1.3;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+    </style>
+    <div class="backdrop"><div class="rail">${cardsHtml}</div></div>`;
+
+  // Keep the selected card in view.
+  const sel = shadow.querySelector('.card.sel');
+  if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+
+function overlayRemove() {
+  const el = document.getElementById('__mru_switcher__');
+  if (el) el.remove();
 }
