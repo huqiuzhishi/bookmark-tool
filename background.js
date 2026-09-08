@@ -305,16 +305,16 @@ function overlayRender(payload) {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
       .rail {
-        display: flex; gap: 14px; padding: 20px 22px;
-        max-width: 92vw; overflow-x: auto;
+        display: flex; gap: 10px; padding: 16px 18px;
+        max-width: 94vw; overflow-x: auto;
         background: rgba(28, 30, 36, 0.92);
         border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 18px;
+        border-radius: 16px;
         box-shadow: 0 24px 60px rgba(0,0,0,0.5);
       }
       .card {
-        flex: 0 0 auto; width: 220px;
-        border-radius: 12px; padding: 8px;
+        flex: 1 1 0; min-width: 96px; max-width: 150px;
+        border-radius: 10px; padding: 6px;
         background: rgba(255,255,255,0.03);
         border: 2px solid transparent;
         transition: transform .12s ease, border-color .12s ease, background .12s ease;
@@ -322,23 +322,23 @@ function overlayRender(payload) {
       .card.sel {
         border-color: #4c8dff;
         background: rgba(76,141,255,0.14);
-        transform: translateY(-4px) scale(1.02);
+        transform: translateY(-3px) scale(1.03);
       }
       .thumb {
-        display: block; width: 100%; height: 132px;
-        object-fit: cover; border-radius: 8px;
+        display: block; width: 100%; height: 82px;
+        object-fit: cover; border-radius: 6px;
         background: #14161b;
       }
       .thumb.noimg { display: flex; align-items: center; justify-content: center; }
-      .fav-lg { width: 40px; height: 40px; opacity: .9; }
+      .fav-lg { width: 32px; height: 32px; opacity: .9; }
       .fav-fallback {
-        width: 40px; height: 40px; border-radius: 8px;
+        width: 32px; height: 32px; border-radius: 6px;
         background: linear-gradient(135deg,#3a3f4b,#242730);
       }
-      .label { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 0 2px; }
-      .fav { width: 16px; height: 16px; flex: 0 0 auto; border-radius: 4px; }
+      .label { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 0 2px; }
+      .fav { width: 14px; height: 14px; flex: 0 0 auto; border-radius: 4px; }
       .title {
-        color: #eef1f6; font-size: 13px; line-height: 1.3;
+        color: #eef1f6; font-size: 12px; line-height: 1.3;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
     </style>
